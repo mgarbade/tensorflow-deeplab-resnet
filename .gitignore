@@ -1,0 +1,7 @@
+*.pyc
+dataset
+deeplab_tf_model
+*.*~
+qsub_*
+q.log/
+qsub/
