@@ -1,0 +1,4 @@
+qsubs*
+*.pyc
+*~
+q.log/*
