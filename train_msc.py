@@ -16,7 +16,11 @@ import time
 import tensorflow as tf
 import numpy as np
 
-from deeplab_resnet import DeepLabResNetModel, ImageReader, decode_labels, inv_preprocess, prepare_label
+import matplotlib as mpl
+mpl.use('Agg')
+import matplotlib.pyplot as plt
+
+from deeplab_resnet import DeepLabResNetModel, ImageReader, decode_labels, decode_labels_old, inv_preprocess, prepare_label
 
 IMG_MEAN = np.array((104.00698793,116.66876762,122.67891434), dtype=np.float32)
 
@@ -104,6 +108,9 @@ def save(saver, sess, logdir, step):
     
    if not os.path.exists(logdir):
       os.makedirs(logdir)
+   if not os.path.exists(logdir + '/train_images/'):
+      os.makedirs(logdir + '/train_images/')
+
    saver.save(sess, checkpoint_path, global_step=step)
    print('The checkpoint has been created.')
 
@@ -303,9 +310,22 @@ def main():
 
         # Apply gradients.
         if step % args.save_pred_every == 0:
-            images, labels, summary, _ = sess.run([image_batch, label_batch, total_summary, train_op], feed_dict=feed_dict)
+            images, labels, preds, summary, _ = sess.run([image_batch, label_batch, pred, total_summary, train_op], feed_dict=feed_dict)
             summary_writer.add_summary(summary, step)
             save(saver, sess, args.snapshot_dir, step)
+            
+            # Print intermediary images
+            SAVE_DIR = args.snapshot_dir + '/train_images/'
+            fig, axes = plt.subplots(args.save_num_images, 3, figsize = (16, 12))
+            for i in xrange(args.save_num_images):
+              axes.flat[i * 3].set_title('data')
+              axes.flat[i * 3].imshow((images[i] + IMG_MEAN)[:, :, ::-1].astype(np.uint8))
+              axes.flat[i * 3 + 1].set_title('mask')
+              axes.flat[i * 3 + 1].imshow(decode_labels_old(labels[i, :, :, 0], args.num_classes))
+              axes.flat[i * 3 + 2].set_title('pred')
+              axes.flat[i * 3 + 2].imshow(decode_labels_old(preds[i, :, :, 0], args.num_classes))
+              plt.savefig(SAVE_DIR + str(start_time) + ".png")
+              plt.close(fig)
         else:
             sess.run(train_op, feed_dict=feed_dict)
 

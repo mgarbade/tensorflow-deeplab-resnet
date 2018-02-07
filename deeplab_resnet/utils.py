@@ -2,17 +2,61 @@ from PIL import Image
 import numpy as np
 import tensorflow as tf
 
-# colour map
-label_colours = [(0,0,0)
-                # 0=background
-                ,(128,0,0),(0,128,0),(128,128,0),(0,0,128),(128,0,128)
-                # 1=aeroplane, 2=bicycle, 3=bird, 4=boat, 5=bottle
-                ,(0,128,128),(128,128,128),(64,0,0),(192,0,0),(64,128,0)
-                # 6=bus, 7=car, 8=cat, 9=chair, 10=cow
-                ,(192,128,0),(64,0,128),(192,0,128),(64,128,128),(192,128,128)
-                # 11=diningtable, 12=dog, 13=horse, 14=motorbike, 15=person
-                ,(0,64,0),(128,64,0),(0,192,0),(128,192,0),(0,64,128)]
-                # 16=potted plant, 17=sheep, 18=sofa, 19=train, 20=tv/monitor
+## colour map
+#label_colours = [(0,0,0)
+#                # 0=background
+#                ,(128,0,0),(0,128,0),(128,128,0),(0,0,128),(128,0,128)
+#                # 1=aeroplane, 2=bicycle, 3=bird, 4=boat, 5=bottle
+#                ,(0,128,128),(128,128,128),(64,0,0),(192,0,0),(64,128,0)
+#                # 6=bus, 7=car, 8=cat, 9=chair, 10=cow
+#                ,(192,128,0),(64,0,128),(192,0,128),(64,128,128),(192,128,128)
+#                # 11=diningtable, 12=dog, 13=horse, 14=motorbike, 15=person
+#                ,(0,64,0),(128,64,0),(0,192,0),(128,192,0),(0,64,128)]
+#                # 16=potted plant, 17=sheep, 18=sofa, 19=train, 20=tv/monitor
+
+# NYU_v2 labels_40
+label_colours = [
+                    (  0,  0,153),
+                    (  0,  0,179),
+                    (  0,  0,204),
+                    (  0,  0,230),
+                    (  0,  0,255),
+                    (  0, 26,255),
+                    (  0, 51,255),
+                    (  0, 77,255),
+                    (  0,102,255),
+                    (  0,128,255),
+                    (  0,153,255),
+                    (  0,179,255),
+                    (  0,204,255),
+                    (  0,230,255),
+                    (  0,255,255),
+                    ( 26,255,230),
+                    ( 51,255,204),
+                    ( 77,255,179),
+                    (102,255,153),
+                    (128,255,128),
+                    (153,255,102),
+                    (179,255, 77),
+                    (204,255, 51),
+                    (230,255, 26),
+                    (255,255,  0),
+                    (255,230,  0),
+                    (255,204,  0),
+                    (255,179,  0),
+                    (255,153,  0),
+                    (255,128,  0),
+                    (255,102,  0),
+                    (255, 77,  0),
+                    (255, 51,  0),
+                    (255, 26,  0),
+                    (255,  0,  0),
+                    (230,  0,  0),
+                    (204,  0,  0),
+                    (179,  0,  0),
+                    (153,  0,  0),
+                    (128,  0,  0)]
+
 
 def decode_labels(mask, num_images=1, num_classes=21):
     """Decode batch of segmentation masks.
@@ -25,6 +69,7 @@ def decode_labels(mask, num_images=1, num_classes=21):
     Returns:
       A batch with num_images RGB images of the same size as the input. 
     """
+    mask = mask.astype(np.int32)
     n, h, w, c = mask.shape
     assert(n >= num_images), 'Batch size %d should be greater or equal than number of images to save %d.' % (n, num_images)
     outputs = np.zeros((num_images, h, w, 3), dtype=np.uint8)
@@ -37,6 +82,18 @@ def decode_labels(mask, num_images=1, num_classes=21):
                   pixels[k_,j_] = label_colours[k]
       outputs[i] = np.array(img)
     return outputs
+
+
+def decode_labels_old(mask, n_classes):
+    mask = mask.astype(np.int32)
+    img = Image.new('RGB', (len(mask[0]), len(mask)))
+    pixels = img.load()
+    for j_, j in enumerate(mask):
+        for k_, k in enumerate(j):
+            if k < n_classes:
+                pixels[k_,j_] = label_colours[k]
+    return np.array(img)
+
 
 def prepare_label(input_batch, new_size, num_classes, one_hot=True):
     """Resize masks and perform one-hot encoding.
