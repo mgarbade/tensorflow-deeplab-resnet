@@ -16,13 +16,19 @@ import time
 import tensorflow as tf
 import numpy as np
 
-from deeplab_resnet import DeepLabResNetModel, ImageReader, decode_labels, inv_preprocess, prepare_label
+import matplotlib as mpl
+mpl.use('Agg')
+import matplotlib.pyplot as plt
+import datetime
+
+from deeplab_resnet import DeepLabResNetModel, ImageReader, decode_labels, decode_labels_old, inv_preprocess, prepare_label
 
 IMG_MEAN = np.array((104.00698793,116.66876762,122.67891434), dtype=np.float32)
 
 BATCH_SIZE = 10
 DATA_DIRECTORY = '/home/VOCdevkit'
 DATA_LIST_PATH = './dataset/train.txt'
+GRAD_UPDATE_EVERY = 10
 IGNORE_LABEL = 255
 INPUT_SIZE = '321,321'
 LEARNING_RATE = 2.5e-4
@@ -33,7 +39,8 @@ POWER = 0.9
 RANDOM_SEED = 1234
 RESTORE_FROM = './deeplab_resnet.ckpt'
 SAVE_NUM_IMAGES = 2
-SAVE_PRED_EVERY = 1000
+SAVE_MODEL_EVERY = 1000
+SAVE_PRED_EVERY = 100
 SNAPSHOT_DIR = './snapshots/'
 WEIGHT_DECAY = 0.0005
 
@@ -51,6 +58,8 @@ def get_arguments():
                         help="Path to the directory containing the PASCAL VOC dataset.")
     parser.add_argument("--data-list", type=str, default=DATA_LIST_PATH,
                         help="Path to the file listing the images in the dataset.")
+    parser.add_argument("--grad-update-every", type=int, default=GRAD_UPDATE_EVERY,
+                        help="Number of steps after which gradient update is applied.")
     parser.add_argument("--ignore-label", type=int, default=IGNORE_LABEL,
                         help="The index of the label to ignore during the training.")
     parser.add_argument("--input-size", type=str, default=INPUT_SIZE,
@@ -81,6 +90,8 @@ def get_arguments():
                         help="How many images to save.")
     parser.add_argument("--save-pred-every", type=int, default=SAVE_PRED_EVERY,
                         help="Save summaries and checkpoint every often.")
+    parser.add_argument("--save-model-every", type=int, default=SAVE_MODEL_EVERY,
+                        help="Save model every often.")
     parser.add_argument("--snapshot-dir", type=str, default=SNAPSHOT_DIR,
                         help="Where to save snapshots of the model.")
     parser.add_argument("--weight-decay", type=float, default=WEIGHT_DECAY,
@@ -99,8 +110,6 @@ def save(saver, sess, logdir, step):
    model_name = 'model.ckpt'
    checkpoint_path = os.path.join(logdir, model_name)
     
-   if not os.path.exists(logdir):
-      os.makedirs(logdir)
    saver.save(sess, checkpoint_path, global_step=step)
    print('The checkpoint has been created.')
 
@@ -118,7 +127,8 @@ def load(saver, sess, ckpt_path):
 def main():
     """Create the model and start the training."""
     args = get_arguments()
-    
+    print(args)
+
     h, w = map(int, args.input_size.split(','))
     input_size = (h, w)
     
@@ -190,23 +200,55 @@ def main():
     total_summary = tf.summary.image('images', 
                                      tf.concat(axis=2, values=[images_summary, labels_summary, preds_summary]), 
                                      max_outputs=args.save_num_images) # Concatenate row-wise.
-    summary_writer = tf.summary.FileWriter(args.snapshot_dir,
-                                           graph=tf.get_default_graph())
+    # summary_writer = tf.summary.FileWriter(args.snapshot_dir,
+    #                                        graph=tf.get_default_graph())
    
     # Define loss and optimisation parameters.
     base_lr = tf.constant(args.learning_rate)
     step_ph = tf.placeholder(dtype=tf.float32, shape=())
     learning_rate = tf.scalar_mul(base_lr, tf.pow((1 - step_ph / args.num_steps), args.power))
     
-    opt_conv = tf.train.MomentumOptimizer(learning_rate, args.momentum)
+    opt_conv = tf.train.MomentumOptimizer(learning_rate * 1.0, args.momentum)
     opt_fc_w = tf.train.MomentumOptimizer(learning_rate * 10.0, args.momentum)
     opt_fc_b = tf.train.MomentumOptimizer(learning_rate * 20.0, args.momentum)
 
-    grads = tf.gradients(reduced_loss, conv_trainable + fc_w_trainable + fc_b_trainable)
-    grads_conv = grads[:len(conv_trainable)]
-    grads_fc_w = grads[len(conv_trainable) : (len(conv_trainable) + len(fc_w_trainable))]
-    grads_fc_b = grads[(len(conv_trainable) + len(fc_w_trainable)):]
+    # Define a variable to accumulate gradients.
+    accum_grads = [tf.Variable(tf.zeros_like(v.initialized_value()),
+                               trainable=False) for v in conv_trainable + fc_w_trainable + fc_b_trainable]
 
+    # Define an operation to clear the accumulated gradients for next batch.
+    zero_op = [v.assign(tf.zeros_like(v)) for v in accum_grads]
+
+    # Compute gradients.
+    grads = tf.gradients(reduced_loss, conv_trainable + fc_w_trainable + fc_b_trainable)
+    # grads_conv = grads[:len(conv_trainable)]
+    # grads_fc_w = grads[len(conv_trainable) : (len(conv_trainable) + len(fc_w_trainable))]
+    # grads_fc_b = grads[(len(conv_trainable) + len(fc_w_trainable)):]
+
+    # Log gradients
+    # tf.summary.histogram('conv1', net.layers['conv1'])
+    # tf.summary.histogram('bn_conv1', net.layers['bn_conv1'])
+    # tf.summary.histogram('res2a_branch1', net.layers['res2a_branch1'])
+    # tf.summary.histogram('res2a_branch1', net.layers['res2a_branch1'])
+    # tf.summary.histogram('bn2a_branch1', net.layers['bn2a_branch1'])
+
+    # tf.summary.histogram('res5c_branch2a', net.layers['res5c_branch2a'])
+    # tf.summary.histogram('bn5c_branch2a', net.layers['bn5c_branch2a'])
+    # tf.summary.histogram('res5c_branch2b', net.layers['res5c_branch2b'])
+    # tf.summary.histogram('res5c_branch2c', net.layers['res5c_branch2c'])    
+
+    for v in grads:
+        tf.summary.histogram(v.name.replace(":", "_"), v)
+
+
+    # Accumulate and normalise the gradients.
+    accum_grads_op = [accum_grads[i].assign_add(grad / args.grad_update_every) for i, grad in
+                       enumerate(grads)]
+
+    grads_conv = accum_grads[:len(conv_trainable)]
+    grads_fc_w = accum_grads[len(conv_trainable) : (len(conv_trainable) + len(fc_w_trainable))]
+    grads_fc_b = accum_grads[(len(conv_trainable) + len(fc_w_trainable)):]
+    # Apply the gradients.
     train_op_conv = opt_conv.apply_gradients(zip(grads_conv, conv_trainable))
     train_op_fc_w = opt_fc_w.apply_gradients(zip(grads_fc_w, fc_w_trainable))
     train_op_fc_b = opt_fc_b.apply_gradients(zip(grads_fc_b, fc_b_trainable))
@@ -222,6 +264,13 @@ def main():
     
     sess.run(init)
     
+    # Log variables
+    summary_writer = tf.summary.FileWriter(args.snapshot_dir, sess.graph)
+    tf.summary.scalar("reduced_loss", reduced_loss)
+    for v in conv_trainable + fc_w_trainable + fc_b_trainable:
+        tf.summary.histogram(v.name.replace(":", "_"), v)
+    merged_summary_op = tf.summary.merge_all()
+    
     # Saver for storing checkpoints of the model.
     saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=10)
     
@@ -230,20 +279,61 @@ def main():
         loader = tf.train.Saver(var_list=restore_var)
         load(loader, sess, args.restore_from)
     
+    if not os.path.exists(args.snapshot_dir):
+        print('Create snapshot_dir')
+        os.makedirs(args.snapshot_dir)
+    if not os.path.exists(args.snapshot_dir + '/train_images/'):
+        print('Create snapshot_dir/train_images')    
+        os.makedirs(args.snapshot_dir + '/train_images/')
+
     # Start queue threads.
     threads = tf.train.start_queue_runners(coord=coord, sess=sess)
 
     # Iterate over training steps.
+    init_time = time.time()
     for step in range(args.num_steps):
         start_time = time.time()
         feed_dict = { step_ph : step }
-        
+        loss_value = 0
+
+        # Clear the accumulated gradients.
+        sess.run(zero_op, feed_dict=feed_dict)
+       
+        # Accumulate gradients.
+        for i in range(args.grad_update_every):
+            _, l_val = sess.run([accum_grads_op, reduced_loss], feed_dict=feed_dict)
+            loss_value += l_val
+
+        # Normalise the loss.
+        loss_value /= args.grad_update_every
+
+        # Apply gradients.
         if step % args.save_pred_every == 0:
-            loss_value, images, labels, preds, summary, _ = sess.run([reduced_loss, image_batch, label_batch, pred, total_summary, train_op], feed_dict=feed_dict)
+            loss_value, images, labels, preds, summary, _ = sess.run([reduced_loss, image_batch, label_batch, pred, merged_summary_op, train_op], feed_dict=feed_dict)
             summary_writer.add_summary(summary, step)
-            save(saver, sess, args.snapshot_dir, step)
+            
+            # Print intermediary images
+            SAVE_DIR = args.snapshot_dir + '/train_images/'
+            fig, axes = plt.subplots(args.save_num_images, 3, figsize = (16, 12))
+            for i in xrange(args.save_num_images):
+              axes.flat[i * 3].set_title('data')
+              axes.flat[i * 3].imshow((images[i] + IMG_MEAN)[:, :, ::-1].astype(np.uint8))
+              axes.flat[i * 3 + 1].set_title('mask')
+              axes.flat[i * 3 + 1].imshow(decode_labels_old(labels[i, :, :, 0], args.num_classes))
+              axes.flat[i * 3 + 2].set_title('pred')
+              axes.flat[i * 3 + 2].imshow(decode_labels_old(preds[i, :, :, 0], args.num_classes))
+              imName = 'step_{:d}'.format(step) + '_' + str(datetime.datetime.now()).\
+                                replace(' ','-').\
+                                replace(':','-').\
+                                replace('.','-')
+              plt.savefig(SAVE_DIR + imName + ".png")
+              plt.close(fig)
         else:
             loss_value, _ = sess.run([reduced_loss, train_op], feed_dict=feed_dict)
+
+        # Save model
+        if step % args.save_model_every == 0 and step > 1:
+            save(saver, sess, args.snapshot_dir, step)            
         duration = time.time() - start_time
         print('step {:d} \t loss = {:.3f}, ({:.3f} sec/step)'.format(step, loss_value, duration))
     coord.request_stop()

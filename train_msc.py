@@ -237,6 +237,8 @@ def main():
     summary_writer = tf.summary.FileWriter(args.snapshot_dir,
                                            graph=tf.get_default_graph())
    
+
+
     # Define loss and optimisation parameters.
     base_lr = tf.constant(args.learning_rate)
     step_ph = tf.placeholder(dtype=tf.float32, shape=())
@@ -280,6 +282,14 @@ def main():
     
     sess.run(init)
     
+
+    # Log variables
+    summary_writer = tf.summary.FileWriter(args.snapshot_dir, sess.graph)
+    tf.summary.scalar("reduced_loss", reduced_loss)
+    for v in conv_trainable + fc_w_trainable + fc_b_trainable:
+        tf.summary.histogram(v.name.replace(":", "_"), v)
+    merged_summary_op = tf.summary.merge_all()
+    
     # Saver for storing checkpoints of the model.
     saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=10)
     
@@ -310,7 +320,7 @@ def main():
 
         # Apply gradients.
         if step % args.save_pred_every == 0:
-            images, labels, preds, summary, _ = sess.run([image_batch, label_batch, pred, total_summary, train_op], feed_dict=feed_dict)
+            images, labels, preds, summary, _ = sess.run([image_batch, label_batch, pred, merged_summary_op, train_op], feed_dict=feed_dict)
             summary_writer.add_summary(summary, step)
             save(saver, sess, args.snapshot_dir, step)
             

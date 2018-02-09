@@ -82,12 +82,16 @@ def read_labeled_image_list(data_dir, data_list):
     f = open(data_list, 'r')
     images = []
     masks = []
+    counter = 0
+    print("Print first 10 lines from filelist: ")
     for line in f:
         try:
             image, mask = line.strip("\n").split(' ')
         except ValueError: # Adhoc for test.
             image = mask = line.strip("\n")
-        print(data_dir + image + ' ' + data_dir + mask)
+        if counter < 10:
+            print(data_dir + image + ' ' + data_dir + mask)
+        counter = counter + 1            
         images.append(data_dir + image)
         masks.append(data_dir + mask)
     return images, masks
